@@ -39,7 +39,7 @@ class MessageDuctIntegrationTest(TestCase):
         parent.bind()
         child = MessageDuctChild.psuedo_anonymous_tcp_child_duct(parent.listener_address[0], parent.listener_address[1])
         child.connect()
-        parent.listen()
+        assert_that(parent.listen()).is_true()
         parent.send(test_data)
         assert_that(child.recv()).is_equal_to(test_data)
         child.close()
@@ -112,7 +112,7 @@ class MessageDuctIntegrationTest(TestCase):
             proc = subprocess.Popen(
                 [sys.executable, SUBPROCESS_TEST_SCRIPT, parent.listener_address], env={'PYTHONPATH': ROOT_DIR}
             )
-            parent.listen()
+            assert_that(parent.listen()).is_true()
             for _ in range(100):
                 parent.send("pingpong")
                 parent.poll(1)
@@ -138,7 +138,7 @@ class MessageDuctIntegrationTest(TestCase):
         bind_address = parent.bind_address
         child = MessageDuctChild.psuedo_anonymous_child_duct(bind_address)
         child.connect()
-        parent.listen()
+        assert_that(parent.listen()).is_true()
 
         time.sleep(1)
 

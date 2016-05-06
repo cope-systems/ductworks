@@ -2,6 +2,8 @@ import select
 import socket
 import os
 import struct
+import errno
+import time
 
 
 class DuctworksException(Exception):
@@ -60,16 +62,18 @@ def tcp_socket_constructor(linger_time=10, tcp_no_delay=1):
     return new_socket
 
 
-def unix_domain_socket_listener_destructor(listener_socket):
+def unix_domain_socket_listener_destructor(listener_socket, shutdown_mode=socket.SHUT_RDWR):
     """
     Close and clean up a Unix Domain listener socket.
 
     :param listener_socket: The socket to close down.
     :type listener_socket: socket.socket
+    :param shutdown_mode: The parameters to be passed to the socket's shutdown function.
+    :type shutdown_mode: int
     :return: None
     """
     socket_address = listener_socket.getsockname()
-    listener_socket.shutdown(socket.SHUT_RDWR)
+    listener_socket.shutdown(shutdown_mode)
     listener_socket.close()
     try:
         os.unlink(socket_address)
@@ -77,27 +81,31 @@ def unix_domain_socket_listener_destructor(listener_socket):
         pass
 
 
-def tcp_socket_listener_destructor(listener_socket):
+def tcp_socket_listener_destructor(listener_socket, shutdown_mode=socket.SHUT_RDWR):
     """
     Close and clean up a TCP listener socket.
 
     :param listener_socket: The socket to close down.
     :type listener_socket: socket.socket
+    :param shutdown_mode: The parameters to be passed to the socket's shutdown function.
+    :type shutdown_mode: int
     :return: None
     """
-    listener_socket.shutdown(socket.SHUT_RDWR)
+    listener_socket.shutdown(shutdown_mode)
     listener_socket.close()
 
 
-def client_socket_destructor(client_socket):
+def client_socket_destructor(client_socket, shutdown_mode=socket.SHUT_RDWR):
     """
     Close and clean up a client socket.
 
     :param client_socket: The socket to close down.
     :type client_socket: socket.socket
+    :param shutdown_mode: The parameters to be passed to the socket's shutdown function.
+    :type shutdown_mode: int
     :return: None
     """
-    client_socket.shutdown(socket.SHUT_RDWR)
+    client_socket.shutdown(shutdown_mode)
     client_socket.close()
 
 
@@ -298,6 +306,8 @@ class RawDuctChild(object):
     """
 
     DEFAULT_TIMEOUT = 30
+    DEFAULT_CONNECT_RETRY_COUNT = 3
+    DEFAULT_RETRY_DELAY = 3
 
     def __init__(self, connect_address, socket_constructor=unix_domain_socket_constructor,
                  socket_destructor=client_socket_destructor, timeout=DEFAULT_TIMEOUT):
@@ -307,19 +317,35 @@ class RawDuctChild(object):
         self.socket = None
         self.socket_timeout = timeout
 
-    def connect(self):
+    def connect(self, connect_retry_count=DEFAULT_CONNECT_RETRY_COUNT, connect_retry_delay=DEFAULT_RETRY_DELAY):
         """
         Attempt to connect to another duct.
 
         AlreadyConnectedException is raised if the connection has already been established.
 
+        :param connect_retry_count: The number of times to retry connecting if the connection is refused or if the
+            file system entry for the Unix Domain socket does not yet exist on disk. Default: 3
+        :type connect_retry_count: int
+        :param connect_retry_delay: The amount of time to sleep between successive connect retries in the event of
+            failure. Default: 3
+        :type connect_retry_delay: int | float
         :return: None
         """
         if self.socket is not None:
             raise AlreadyConnectedException("Already connected to other end!")
-        self.socket = self.socket_constructor()
-        self.socket.settimeout(self.socket_timeout)
-        self.socket.connect(self.connect_address)
+        while True:
+            try:
+                self.socket = self.socket_constructor()
+                self.socket.settimeout(self.socket_timeout)
+                self.socket.connect(self.connect_address)
+                return
+            except socket.error as e:
+                self.socket = None
+                if e.errno == errno.ENOENT or e.errno == errno.ECONNREFUSED and connect_retry_count:
+                    connect_retry_count -= 1
+                    time.sleep(connect_retry_delay)
+                else:
+                    raise e
 
     def send(self, byte_array, flags=None):
         """

@@ -402,9 +402,9 @@ def create_psuedo_anonymous_duct_pair(serialize=default_serializer, deserialize=
         serialize=serialize, deserialize=deserialize, lock=parent_lock
     )
     parent.bind()
-    bind_address = parent.listener_address
+    listener_address = parent.listener_address
     child = MessageDuctChild.psuedo_anonymous_child_duct(
-        bind_address, serialize=serialize, deserialize=deserialize, lock=child_lock
+        listener_address, serialize=serialize, deserialize=deserialize, lock=child_lock
     )
     child.connect()
     parent.listen()
