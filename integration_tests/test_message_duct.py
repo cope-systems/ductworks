@@ -6,6 +6,7 @@ import os
 import time
 import subprocess
 import sys
+import multiprocessing
 
 from ductworks.message_duct import MessageDuctParent, MessageDuctChild, create_psuedo_anonymous_duct_pair
 
@@ -124,6 +125,33 @@ class MessageDuctIntegrationTest(TestCase):
                 parent.close()
             if proc:
                 proc.terminate()
+
+    def test_mp_pipe_replacement(self):
+        """
+        As a Python developer,
+        I want to be able to use ductworks with multiprocessing,
+        and to be able to close the child duct after forking,
+        so that I can drop ductworks in place of multiprocessing.Pipe
+        without causing unexpected problems.
+        """
+        parent, child = create_psuedo_anonymous_duct_pair()
+
+        def mp_child_target():
+            parent.close()
+            time.sleep(3)
+            child.send("hello world")
+            child.close()
+
+        p = multiprocessing.Process(target=mp_child_target)
+        p.daemon = True
+        p.start()
+        child.close()
+
+        p.join(10)
+        assert_that(parent.recv()).is_equal_to("hello world")
+        parent.close()
+
+
 
     def test_performance(self):
         """
