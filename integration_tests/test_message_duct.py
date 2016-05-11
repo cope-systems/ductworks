@@ -7,6 +7,7 @@ import time
 import subprocess
 import sys
 import multiprocessing
+import errno
 
 from ductworks.message_duct import MessageDuctParent, MessageDuctChild, create_psuedo_anonymous_duct_pair
 
@@ -151,6 +152,22 @@ class MessageDuctIntegrationTest(TestCase):
         assert_that(parent.recv()).is_equal_to("hello world")
         parent.close()
 
+    def test_eof_on_remote_close(self):
+        """
+        As a Python developer,
+        I want to be able my duct to raise EOFError when there's
+        nothing left to read, so that it is drop-in compatible with Pipe.
+        """
+        parent, child = create_psuedo_anonymous_duct_pair()
+        child.close()
+        self.assertRaises(EOFError, parent.recv)
+        try:
+            parent.send("test")
+        except IOError as e:
+            assert getattr(e, 'errno') == errno.EPIPE
+        except:
+            raise AssertionError("Incorrect exception raised for parent.send() on a broken connection!")
+        parent.close()
 
 
     def test_performance(self):

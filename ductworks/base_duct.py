@@ -22,7 +22,7 @@ class NotConnectedException(DuctworksException):
     pass
 
 
-class RemoteSocketClosed(DuctworksException):
+class LocalSocketFault(DuctworksException):
     pass
 
 
@@ -273,7 +273,7 @@ class RawDuctParent(object):
         has_recv_data, _, is_faulted = map(bool, select.select([self.conn_socket], [], [self.conn_socket], timeout))
         if is_faulted:
             self.server_connection_socket_destructor(self.conn_socket, shutdown=True)
-            raise RemoteSocketClosed("Remote socket is closed!")
+            raise LocalSocketFault("Local socket has an error condition set!")
         return has_recv_data
 
     def get_conn_file_descriptor(self):
@@ -446,7 +446,7 @@ class RawDuctChild(object):
         has_recv_data, _, is_faulted = map(bool, select.select([self.socket], [], [self.socket], timeout))
         if is_faulted:
             self.socket_destructor(self.socket, shutdown=True)
-            raise RemoteSocketClosed("Remote socket is closed!")
+            raise LocalSocketFault("Local socket has an error condition set!")
         return has_recv_data
 
     def get_conn_file_descriptor(self):

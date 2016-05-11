@@ -8,13 +8,17 @@ from binascii import hexlify
 from tempfile import NamedTemporaryFile
 
 from ductworks.base_duct import RawDuctParent, RawDuctChild, tcp_socket_constructor,\
-    tcp_socket_listener_destructor
+    tcp_socket_listener_destructor, DuctworksException
 
 
 MAGIC_BYTE = b'\x54'
 
 
-class MessageProtocolException(Exception):
+class MessageProtocolException(DuctworksException):
+    pass
+
+
+class RemoteDuctClosed(EOFError, DuctworksException):
     pass
 
 
@@ -198,20 +202,26 @@ class MessageDuctParent(object):
             if recv_lock:
                 recv_lock.acquire()
             leading_byte = self.socket_duct.recv(1)
-            if leading_byte != MAGIC_BYTE:
+            if not leading_byte:
+                raise RemoteDuctClosed("Remote duct closed.")
+            elif leading_byte != MAGIC_BYTE:
                 raise MessageProtocolException("Invalid magic byte at message envelope head! Expected: {}, got: {}"
-                                               "".format(hexlify(MAGIC_BYTE), hex(ord(leading_byte))))
+                                               "".format(hexlify(MAGIC_BYTE), hexlify(leading_byte)))
             raw_payload_len = bytearray(struct.calcsize('!L'))
             raw_payload_len_view = memoryview(raw_payload_len)
             while raw_payload_len_view:
-                num_bytes_recieved = self.socket_duct.recv_into(raw_payload_len_view)
-                raw_payload_len_view = raw_payload_len_view[num_bytes_recieved:]
+                num_bytes_received = self.socket_duct.recv_into(raw_payload_len_view)
+                if num_bytes_received == 0:
+                    raise RemoteDuctClosed("Remote duct closed mid-message!")
+                raw_payload_len_view = raw_payload_len_view[num_bytes_received:]
             incoming_payload_len, = struct.unpack('!L', bytes(raw_payload_len))
             serialized_payload = bytearray(incoming_payload_len)
             serialized_payload_view = memoryview(serialized_payload)
             while serialized_payload_view:
-                num_bytes_recieved = self.socket_duct.recv_into(serialized_payload_view)
-                serialized_payload_view = serialized_payload_view[num_bytes_recieved:]
+                num_bytes_received = self.socket_duct.recv_into(serialized_payload_view)
+                if num_bytes_received == 0:
+                    raise RemoteDuctClosed("Remote duct closed mid-message!")
+                serialized_payload_view = serialized_payload_view[num_bytes_received:]
             return self.deserialize(serialized_payload)
         finally:
             if recv_lock:
@@ -355,20 +365,26 @@ class MessageDuctChild(object):
             if recv_lock:
                 recv_lock.acquire()
             leading_byte = self.socket_duct.recv(1)
-            if leading_byte != MAGIC_BYTE:
+            if not leading_byte:
+                raise RemoteDuctClosed("Remote duct closed.")
+            elif leading_byte != MAGIC_BYTE:
                 raise MessageProtocolException("Invalid magic byte at message envelope head! Expected: {}, got: {}"
-                                               "".format(hexlify(MAGIC_BYTE), hex(ord(leading_byte))))
+                                               "".format(hexlify(MAGIC_BYTE), hexlify(leading_byte)))
             raw_payload_len = bytearray(struct.calcsize('!L'))
             raw_payload_len_view = memoryview(raw_payload_len)
             while raw_payload_len_view:
-                num_bytes_recieved = self.socket_duct.recv_into(raw_payload_len_view)
-                raw_payload_len_view = raw_payload_len_view[num_bytes_recieved:]
+                num_bytes_received = self.socket_duct.recv_into(raw_payload_len_view)
+                if num_bytes_received == 0:
+                    raise RemoteDuctClosed("Remote duct closed mid-message!")
+                raw_payload_len_view = raw_payload_len_view[num_bytes_received:]
             incoming_payload_len, = struct.unpack('!L', bytes(raw_payload_len))
             serialized_payload = bytearray(incoming_payload_len)
             serialized_payload_view = memoryview(serialized_payload)
             while serialized_payload_view:
-                num_bytes_recieved = self.socket_duct.recv_into(serialized_payload_view)
-                serialized_payload_view = serialized_payload_view[num_bytes_recieved:]
+                num_bytes_received = self.socket_duct.recv_into(serialized_payload_view)
+                if num_bytes_received == 0:
+                    raise RemoteDuctClosed("Remote duct closed mid-message!")
+                serialized_payload_view = serialized_payload_view[num_bytes_received:]
             return self.deserialize(serialized_payload)
         finally:
             if recv_lock:
