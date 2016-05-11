@@ -62,18 +62,21 @@ def tcp_socket_constructor(linger_time=10, tcp_no_delay=1):
     return new_socket
 
 
-def unix_domain_socket_listener_destructor(listener_socket, shutdown_mode=socket.SHUT_RDWR):
+def unix_domain_socket_listener_destructor(listener_socket, shutdown=False, shutdown_mode=socket.SHUT_RDWR):
     """
     Close and clean up a Unix Domain listener socket.
 
     :param listener_socket: The socket to close down.
     :type listener_socket: socket.socket
+    :param shutdown: Should shutdown be performed on the socket? (Usually no). Default: False
+    :type shutdown: bool
     :param shutdown_mode: The parameters to be passed to the socket's shutdown function.
     :type shutdown_mode: int
     :return: None
     """
     socket_address = listener_socket.getsockname()
-    listener_socket.shutdown(shutdown_mode)
+    if shutdown:
+        listener_socket.shutdown(shutdown_mode)
     listener_socket.close()
     try:
         os.unlink(socket_address)
@@ -81,31 +84,37 @@ def unix_domain_socket_listener_destructor(listener_socket, shutdown_mode=socket
         pass
 
 
-def tcp_socket_listener_destructor(listener_socket, shutdown_mode=socket.SHUT_RDWR):
+def tcp_socket_listener_destructor(listener_socket, shutdown=False, shutdown_mode=socket.SHUT_RDWR):
     """
     Close and clean up a TCP listener socket.
 
     :param listener_socket: The socket to close down.
     :type listener_socket: socket.socket
+    :param shutdown: Should shutdown be performed on the socket? (Usually no). Default: False
+    :type shutdown: bool
     :param shutdown_mode: The parameters to be passed to the socket's shutdown function.
     :type shutdown_mode: int
     :return: None
     """
-    listener_socket.shutdown(shutdown_mode)
+    if shutdown:
+        listener_socket.shutdown(shutdown_mode)
     listener_socket.close()
 
 
-def client_socket_destructor(client_socket, shutdown_mode=socket.SHUT_RDWR):
+def client_socket_destructor(client_socket, shutdown=False, shutdown_mode=socket.SHUT_RDWR):
     """
     Close and clean up a client socket.
 
     :param client_socket: The socket to close down.
     :type client_socket: socket.socket
+    :param shutdown: Should shutdown be performed on the socket? (Usually no). Default: False
+    :type shutdown: bool
     :param shutdown_mode: The parameters to be passed to the socket's shutdown function.
     :type shutdown_mode: int
     :return: None
     """
-    client_socket.shutdown(shutdown_mode)
+    if shutdown:
+        client_socket.shutdown(shutdown_mode)
     client_socket.close()
 
 
@@ -167,12 +176,12 @@ class RawDuctParent(object):
         listener_fd = self.listener_socket.fileno()
         has_conn, _, is_faulted = map(bool, select.select([listener_fd], [], [listener_fd], timeout))
         if is_faulted:
-            self.server_listener_socket_destructor(self.listener_socket)
+            self.server_listener_socket_destructor(self.listener_socket, shutdown=True)
             raise CommunicationFaultException("Bind socket faulted!")
         elif has_conn:
             self.conn_socket, _ = self.listener_socket.accept()
             self.conn_socket.settimeout(self.socket_timeout)
-            self.server_listener_socket_destructor(self.listener_socket)
+            self.server_listener_socket_destructor(self.listener_socket, shutdown=True)
             self.listener_socket = None
         return bool(self.conn_socket)
 
@@ -263,7 +272,7 @@ class RawDuctParent(object):
             raise NotConnectedException("Must be connected to other end to poll for data!")
         has_recv_data, _, is_faulted = map(bool, select.select([self.conn_socket], [], [self.conn_socket], timeout))
         if is_faulted:
-            self.server_connection_socket_destructor(self.conn_socket)
+            self.server_connection_socket_destructor(self.conn_socket, shutdown=True)
             raise RemoteSocketClosed("Remote socket is closed!")
         return has_recv_data
 
@@ -282,16 +291,18 @@ class RawDuctParent(object):
         else:
             return self.conn_socket.fileno()
 
-    def close(self):
+    def close(self, shutdown=False):
         """
         Close the connection or listener sockets, if they're open.
+        :param shutdown: Should shutdown be performed on the connection socket? (Usually no). Default: False
+        :type shutdown: bool
         :return: None
         """
         if self.listener_socket is not None:
-            self.server_listener_socket_destructor(self.listener_socket)
+            self.server_listener_socket_destructor(self.listener_socket, shutdown=True)
             self.listener_socket = None
         if self.conn_socket is not None:
-            self.server_connection_socket_destructor(self.conn_socket)
+            self.server_connection_socket_destructor(self.conn_socket, shutdown=shutdown)
             self.conn_socket = None
 
     def __del__(self):
@@ -434,7 +445,7 @@ class RawDuctChild(object):
             raise NotConnectedException("Must be connected to other end to poll for data!")
         has_recv_data, _, is_faulted = map(bool, select.select([self.socket], [], [self.socket], timeout))
         if is_faulted:
-            self.socket_destructor(self.socket)
+            self.socket_destructor(self.socket, shutdown=True)
             raise RemoteSocketClosed("Remote socket is closed!")
         return has_recv_data
 
@@ -453,13 +464,15 @@ class RawDuctChild(object):
         else:
             return self.socket.fileno()
 
-    def close(self):
+    def close(self, shutdown=False):
         """
         Close the connection socket, if it's open.
+        :param shutdown: Should shutdown be performed on the connection socket? (Usually no). Default: False
+        :type shutdown: bool
         :return: None
         """
         if self.socket is not None:
-            self.socket_destructor(self.socket)
+            self.socket_destructor(self.socket, shutdown=shutdown)
             self.socket = None
 
     def __del__(self):
