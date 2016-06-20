@@ -7,22 +7,42 @@ import time
 
 
 class DuctworksException(Exception):
+    """
+    This is the generic base exception from which all custom exceptions
+    thrown in Ductworks should inherit.
+    """
     pass
 
 
 class CommunicationFaultException(DuctworksException):
+    """
+    This exception is thrown when the underlying listener socket in the parent is returned in
+    the error list on the select syscall while waiting for the child to connect.
+    """
     pass
 
 
 class AlreadyConnectedException(DuctworksException):
+    """
+    This exception is thrown when a child duct attempts to connect after
+    a connection has already been established.
+    """
     pass
 
 
 class NotConnectedException(DuctworksException):
+    """
+    This exception is thrown when either duct attempts to send/recv/poll prior to a
+    successful connection becoming established.
+    """
     pass
 
 
 class LocalSocketFault(DuctworksException):
+    """
+    This exception is thrown when the underlying communication socket is returned in
+    the error list on the select syscall.
+    """
     pass
 
 
@@ -147,6 +167,7 @@ class RawDuctParent(object):
 
         :param listen_queue_depth: The queue depth for the listener socket. Default: 1
         :return: None
+        :rtype: NoneType
         """
         if self.conn_socket is not None:
             raise AlreadyConnectedException("Already connected to other end!")
@@ -276,7 +297,7 @@ class RawDuctParent(object):
             raise LocalSocketFault("Local socket has an error condition set!")
         return has_recv_data
 
-    def get_conn_file_descriptor(self):
+    def fileno(self):
         """
         Get the file descriptor of the underlying connection socket. This is useful for integrating into other event
         loops.
@@ -449,7 +470,7 @@ class RawDuctChild(object):
             raise LocalSocketFault("Local socket has an error condition set!")
         return has_recv_data
 
-    def get_conn_file_descriptor(self):
+    def fileno(self):
         """
         Get the file descriptor of the underlying connection socket. This is useful for integrating into other event
         loops.

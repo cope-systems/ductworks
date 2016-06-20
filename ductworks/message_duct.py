@@ -31,6 +31,7 @@ def serializer_with_encoder_constructor(serialization_func, encoder_type='utf-8'
     :param encoder_type: The encoder type. Default: 'utf-8'
     :param encoder_error_mode: The encode error mode. Default: 'strict'.
     :return: The serializer function wrapped with specified encoder.
+    :rtype: T -> bytes | bytearray | str
     """
     encoder = codecs.getencoder(encoder_type)
 
@@ -40,7 +41,7 @@ def serializer_with_encoder_constructor(serialization_func, encoder_type='utf-8'
     return serialize
 
 
-def deserializer_with_encoder_constructor(deserialization_func, decoder_type='utf-8', decoder_error_mode='replace'):
+def deserializer_with_decoder_constructor(deserialization_func, decoder_type='utf-8', decoder_error_mode='replace'):
     """
     Wrap a deserialization function with string encoding. This is important for JSON, as it expects to operate on
     strings (potentially unicode), NOT bytetsteams. A decoding steps is needed in between.
@@ -49,6 +50,7 @@ def deserializer_with_encoder_constructor(deserialization_func, decoder_type='ut
     :param decoder_type: The decoder type. Default: 'utf-8'
     :param decoder_error_mode: The decode error mode. Default: 'replace'.
     :return: The deserializer function wrapped with specified decoder.
+    :rtype: bytes | bytearray | str -> T
     """
     decoder = codecs.getdecoder(decoder_type)
 
@@ -59,10 +61,43 @@ def deserializer_with_encoder_constructor(deserialization_func, decoder_type='ut
 
 
 default_serializer = serializer_with_encoder_constructor(json.dumps)
-default_deserializer = deserializer_with_encoder_constructor(json.loads)
+default_deserializer = deserializer_with_decoder_constructor(json.loads)
 
 
 class MessageDuctParent(object):
+    """
+    The MessageDuctParent is an abstraction over the SocketDuctParent and provides an interface compatible
+    with Python's multiprocessing.Connection (created by multiprocessing.Pipe). The Message Duct, much like
+    multiprocessing Connections, can send native data structures over the wire and does so without the developer
+    worrying about how to make the underlying stream based connections work correctly with arbitrary-size message
+    based semantics. This means for the end user, a single send() is all that is needed to send data over the
+    connection, and a single recv() on the other side will produce the correct data structure without any additional
+    hassle.
+
+    Unlike multiprocessing.Connection, MessageDuctParent supports some additional features; first, while a reasonable
+    default choice is made for serialization and deserialization (UTF-8 encoded JSON), the user may specify the
+    serialization and deserialization routines; this can include higher performance or more Python-centric
+    serialization libraries such as marshal, pickle, or dill, or general high performance serialization libraries
+    such as msgpack. It would not be outside of the realm of possibility to bolt-in other serialization libraries
+    such as Cap'n Proto or messagebuffers though these would not be a direct fit because of the differing paradigms.
+
+    Additional the message ducts allow an arbitrary lock structure to be used when communicating, which the sole
+    requirement being that it must obey the same semantics as Python's built in lock structures. This can be as simple
+    as using the anonymous POSIX thread locking (threading.Lock) to eliminate race conditions when the duct is shared
+    between competing threads, to using multiprocessing.Lock, a wrapper around flock(2), or a named POSIX locks library
+    to synchronize access between local processes. It is even conceivable to bolt-in distributed lock systems, like
+    etcd.
+
+    Finally, the Message Duct retains the full power of the underlying Socket Duct to pick and choose the connection
+    constructor and destructor, which means that both TCP and stream-oriented Unix Domain Sockets are provided and
+    supported, and other networking libraries such as nanomsg or ZeroMQ could also be used with minimal extra work
+    if needed. This enables this library to allow simple pipe like semantics even when both ends are children of
+    the same parent process, or even located on the same physical system.
+
+    This side of the message duct must listen and wait for a MessageDuctChild to connect in order
+    to begin communication.
+    """
+
     def __init__(self, socket_duct, serialize=default_serializer, deserialize=default_deserializer, lock=None):
         self.socket_duct = socket_duct
         self.serialize = serialize
@@ -71,13 +106,26 @@ class MessageDuctParent(object):
 
     @property
     def bind_address(self):
+        """
+        Access the address specified by the user to bind to. This may not be
+        the actual address the parent is/was listening on.
+
+        :return: The bound address
+        :rtype: (str, int) | str
+        """
         return self.socket_duct.bind_address
 
     @property
     def listener_address(self):
+        """
+        Access the actual address the parent socket is/was listening on.
+
+        :return: The bound address
+        :rtype: (str, int) | str
+        """
         return self.socket_duct.listener_address
 
-    def get_conn_file_descriptor(self):
+    def fileno(self):
         """
         Get the file descriptor for the connection socket in the socket duct.
         This is useful for integrating into other event loops.
@@ -85,7 +133,7 @@ class MessageDuctParent(object):
         :return: The connection file descriptor.
         :rtype: int
         """
-        return self.socket_duct.get_conn_file_descriptor()
+        return self.socket_duct.fileno()
 
     @classmethod
     def psuedo_anonymous_parent_duct(cls, bind_address=None, serialize=default_serializer,
@@ -103,7 +151,7 @@ class MessageDuctParent(object):
         :param timeout: The number of seconds to block a send/recv call waiting for completion.
         :type timeout: int | float
         :return: A new MessageDuctParent.
-        :rtype: ductworks.MessageDuctParent
+        :rtype: ductworks.message_duct.MessageDuctParent
         """
         if bind_address is None:
             tmp = NamedTemporaryFile()
@@ -131,7 +179,7 @@ class MessageDuctParent(object):
         :param timeout: The number of seconds to block a send/recv call waiting for completion.
         :type timeout: int | float
         :return: A new MessageDuctParent.
-        :rtype: ductworks.MessageDuctParent
+        :rtype: ductworks.message_duct.MessageDuctParent
         """
 
         return cls(
@@ -148,6 +196,7 @@ class MessageDuctParent(object):
         """
         Bind the underlying socket duct.
         :return: None
+        :rtype: NoneType
         """
         return self.socket_duct.bind()
 
@@ -155,6 +204,7 @@ class MessageDuctParent(object):
         """
         Listen on the underyling socket duct.
         :return: None
+        :rtype: NoneType
         """
         return self.socket_duct.listen()
 
@@ -174,6 +224,7 @@ class MessageDuctParent(object):
 
         :param payload: A serializable Python object to send to the other duct.
         :return: None
+        :rtype: NoneType
         """
         send_lock = self.lock
         try:
@@ -239,6 +290,12 @@ class MessageDuctParent(object):
 
 
 class MessageDuctChild(object):
+    """
+    The MessageDuctChild is an abstraction over the SocketDuctChild and provides an interface compatible
+    with Python's multiprocessing.Connection (created by multiprocessing.Pipe).
+
+    This side must connect to a listening MessageDuctParent in order to begin communication.
+    """
     def __init__(self, socket_duct, serialize=default_serializer, deserialize=default_deserializer, lock=None):
         self.socket_duct = socket_duct
         self.serialize = serialize
@@ -249,7 +306,7 @@ class MessageDuctChild(object):
     def connect_address(self):
         return self.socket_duct.connect_address
 
-    def get_conn_file_descriptor(self):
+    def fileno(self):
         """
         Get the file descriptor for the connection socket in the socket duct.
         This is useful for integrating into other event loops.
@@ -257,7 +314,7 @@ class MessageDuctChild(object):
         :return: The connection file descriptor.
         :rtype: int
         """
-        return self.socket_duct.get_conn_file_descriptor()
+        return self.socket_duct.fileno()
 
     @classmethod
     def psuedo_anonymous_child_duct(cls, connect_address, serialize=default_serializer,
@@ -275,7 +332,7 @@ class MessageDuctChild(object):
         :param timeout: The number of seconds to block a send/recv call waiting for completion.
         :type timeout: int | float
         :return: A new MessageParentDuct.
-        :rtype: ductworks.MessageDuctChild
+        :rtype: ductworks.message_duct.MessageDuctChild
         """
         return cls(
             RawDuctChild(
@@ -302,7 +359,7 @@ class MessageDuctChild(object):
         :param timeout: The number of seconds to block a send/recv call waiting for completion.
         :type timeout: int | float
         :return: A new MessageParentDuct.
-        :rtype: ductworks.MessageDuctChild
+        :rtype: ductworks.message_duct.MessageDuctChild
         """
 
         return cls(
@@ -411,7 +468,7 @@ def create_psuedo_anonymous_duct_pair(serialize=default_serializer, deserialize=
     :param parent_lock: An optional lock object to give to the "parent" duct.
     :param child_lock: An optional lock object to give to the "child" duct.
     :return: A parent/child pair of ducts.
-    :rtype: (ductworks.MessageDuctParent, ductworks.MesssageDuctChild)
+    :rtype: (ductworks.message_duct.MessageDuctParent, ductworks.message_duct.MesssageDuctChild)
     """
 
     parent = MessageDuctParent.psuedo_anonymous_parent_duct(
