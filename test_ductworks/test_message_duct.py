@@ -11,7 +11,7 @@ import errno
 
 from ductworks.message_duct import MessageDuctParent, MessageDuctChild, create_psuedo_anonymous_duct_pair
 
-from integration_tests import SUBPROCESS_TEST_SCRIPT, ROOT_DIR
+from test_ductworks import SUBPROCESS_TEST_SCRIPT, ROOT_DIR
 
 
 class MessageDuctIntegrationTest(TestCase):

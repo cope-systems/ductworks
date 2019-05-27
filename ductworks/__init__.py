@@ -1,3 +1,3 @@
 __author__ = 'Robert Cope'
-__author_email__ = 'rpcope1@gmail.com'
-__version__ = '0.0.1a4'
+__author_email__ = 'robert@copesystems.com'
+__version__ = '0.1.0'
